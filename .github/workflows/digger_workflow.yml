@@ -1,0 +1,59 @@
+name: Digger Workflow
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize ]
+    paths:
+      - 'envs/**'
+      - 'tfmigrate/**'
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: digger-run
+
+jobs:
+  digger-job:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'issue_comment' && startsWith(github.event.comment.body, 'digger') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write      # required to merge PRs
+      id-token: write      # required for workload-identity-federation
+      pull-requests: write # required to post PR comments
+      issues: read         # required to check if PR number is an issue or not
+      statuses: write      # required to validate combined PR status
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/merge
+        if: ${{ github.event_name == 'issue_comment' }}
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name != 'issue_comment' }}
+      - id: opentofu_version
+        run: echo "value=$(sed -n 's/^opentofu \(.*\)$/\1/p' .tool-versions)" >> $GITHUB_OUTPUT
+      - name: Run pre_workflow_hooks
+        run: .github/scripts/pre_workflow_hooks.sh
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: diggerhq/digger@v0.6.79
+        with:
+          no-backend: true
+          disable-locking: true
+          cache-dependencies: true
+          configure-checkout: false
+          setup-opentofu: true
+          opentofu-version: ${{ steps.opentofu_version.outputs.value }}
+          setup-aws: true
+          aws-region: ap-northeast-1
+          aws-role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/digger-gha-aws
+          upload-plan-destination: aws
+          upload-plan-destination-s3-bucket: minamijoyo-digger-tfplan-aws
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_CONFIG_FILE: ${{ github.workspace }}/.aws/config
+          TFMIGRATE_EXEC_PATH: tofu

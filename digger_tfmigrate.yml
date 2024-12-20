@@ -1,0 +1,23 @@
+telemetry: false
+auto_merge: true
+projects:
+  - name: tfmigrate
+    dir: tfmigrate
+    opentofu: true
+    workflow: tfmigrate
+workflows:
+  tfmigrate:
+    plan:
+      steps:
+        - run: cd $(git rev-parse --show-toplevel) && tfmigrate plan 2>&1 | tee -a $DIGGER_OUT
+        # When you configure to save a tfplan file, you need to generate a
+        # valid tfplan file in a plan step, so create a dummy.tf here and then
+        # init and plan to generate a tfplan. Note that the output of the
+        # digger plan on the pull request always has no changes, but you can
+        # see the output of the tfmigrate plan in the additional output field.
+        - run: touch dummy.tf
+        - init
+        - plan
+    apply:
+      steps:
+        - run: cd $(git rev-parse --show-toplevel) && tfmigrate apply 2>&1 | tee -a $DIGGER_OUT
